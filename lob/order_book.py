@@ -75,6 +75,10 @@ class OrderBook:
         if level.is_empty:
             del side_dict[level.price]
         return front, actual
+        
+    def get_all_order_ids(self) -> list[int]:
+        """Return a snapshot list of all currently resting order ids."""
+        return list(self._order_locations.keys())
 
     # ---- top-of-book queries -----------------------------------------------
 
