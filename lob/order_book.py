@@ -54,6 +54,28 @@ class OrderBook:
         order.cancel()
         return order
 
+    def consume_from_top(self, side: Side, fill_qty: int) -> tuple[Order, int]:
+        """Consume up to ``fill_qty`` from the front order of the best level
+        on ``side``. Used by the matching engine when an opposing order matches.
+
+        Returns ``(maker_order, actual_qty_filled)``. Cleans up in place: if
+        the maker is fully filled it's removed from the location index, and
+        if the level becomes empty it's removed from the side.
+        """
+        side_dict = self._bids if side == Side.BUY else self._asks
+        if not side_dict:
+            raise IndexError(f"no orders on {side} side")
+        _, level = (
+            side_dict.peekitem(-1) if side == Side.BUY else side_dict.peekitem(0)
+        )
+        front = level.peek_front()
+        actual = level.fill_front(fill_qty)
+        if front.remaining_quantity == 0:
+            self._order_locations.pop(front.order_id, None)
+        if level.is_empty:
+            del side_dict[level.price]
+        return front, actual
+
     # ---- top-of-book queries -----------------------------------------------
 
     def best_bid(self) -> Optional[PriceLevel]:
