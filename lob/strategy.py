@@ -8,7 +8,16 @@ from lob.matching_engine import MatchingEngine, Trade
 from lob.order import Order, OrderType, Side
 from lob.order_book import OrderBook
 from lob.position import Position
+from dataclasses import dataclass
 
+@dataclass
+class StrategyFill:
+    """Record of a fill on one of the strategy's own orders."""
+    timestamp: int
+    price: float
+    quantity: int
+    side: Side       # the strategy's side: BUY = bought, SELL = sold
+    order_id: int
 
 class Strategy(ABC):
     """Abstract strategy: participates in a simulation, tracks its own P&L.
@@ -29,7 +38,7 @@ class Strategy(ABC):
         self.book = book
         self.position = Position()
         self.active_orders: Dict[int, Order] = {}
-        self.fills: List[Trade] = []
+        self.fills: List[StrategyFill] = []
         self._next_order_id = starting_order_id
         self._current_time = 0
 
@@ -103,15 +112,22 @@ class Strategy(ABC):
                 self.active_orders.pop(order_id, None)
     
     def _maybe_apply_fill(self, trade: Trade) -> None:
-        """If a trade involves one of our orders, update Position."""
+        """If a trade involves one of our orders, update Position and record fill."""
         for order_id in (trade.maker_order_id, trade.aggressor_order_id):
             if order_id in self.active_orders:
                 order = self.active_orders[order_id]
                 self.position.apply_fill(order.side, trade.price, trade.quantity)
-                self.fills.append(trade)
+                self.fills.append(StrategyFill(
+                    timestamp=trade.timestamp,
+                    price=trade.price,
+                    quantity=trade.quantity,
+                    side=order.side,
+                    order_id=order_id,
+                ))
                 if order.remaining_quantity == 0:
                     self.active_orders.pop(order_id, None)
-                return  # a trade can only involve one of our orders
+                return
+                
 
 
 class FixedSpreadMarketMaker(Strategy):

@@ -1,62 +1,54 @@
-"""Backtest a FixedSpreadMarketMaker against simulated noise flow.
+"""Backtest a FixedSpreadMarketMaker and compute full performance metrics.
 
 Run from project root:
     python -m examples.backtest_demo
 """
 from __future__ import annotations
 
+import os
+
+from lob.metrics import compute_metrics
 from lob.order_flow import OrderFlowParams
+from lob.plotting import plot_backtest
 from lob.simulation import Simulation
 from lob.strategy import FixedSpreadMarketMaker
+
+OUTPUT_DIR = "plots"
+OUTPUT_FILE = "backtest_fixed_spread.png"
 
 
 def main() -> None:
     sim = Simulation(
         params=OrderFlowParams(reference_price=100.0),
         strategy_factory=lambda engine, book: FixedSpreadMarketMaker(
-            engine=engine,
-            book=book,
-            half_spread_ticks=2,
-            quote_size=20,
-            tick_size=0.01,
+            engine=engine, book=book,
+            half_spread_ticks=2, quote_size=20, tick_size=0.01,
         ),
         snapshot_interval_ns=50_000_000,
         seed=42,
     )
-    stats = sim.run(n_events=20_000)
+    sim.run(n_events=20_000)
 
-    print("=== Simulation stats ===")
-    for k, v in stats.__dict__.items():
-        if k == "elapsed_ns":
-            print(f"  elapsed              {v / 1e9:,.2f} s")
-        else:
-            print(f"  {k:<20} {v:,}" if isinstance(v, int) else f"  {k:<20} {v}")
+    m = compute_metrics(sim)
 
-    print()
-    strat = sim.strategy
-    pos = strat.position
-    final_mid = sim.book.mid_price or sim.params.reference_price
-    print("=== Strategy results (FixedSpreadMM) ===")
-    print(f"  Total fills:         {len(strat.fills):,}")
-    print(f"  Final inventory:     {pos.inventory}")
-    print(f"  Final cash:          ${pos.cash:,.2f}")
-    print(f"  Final mark price:    ${final_mid:.4f}")
-    print(f"  Final MTM P&L:       ${pos.mtm(final_mid):,.2f}")
-    if strat.fills:
-        vwap = (
-            sum(t.price * t.quantity for t in strat.fills)
-            / sum(t.quantity for t in strat.fills)
-        )
-        print(f"  Avg fill price:      ${vwap:.4f}")
+    print("=== FixedSpreadMM — performance metrics ===")
+    print(f"  Final P&L:               ${m.final_pnl:>10,.2f}")
+    print(f"  Sharpe (per snapshot):   {m.sharpe_per_snapshot:>10.4f}")
+    print(f"  Max drawdown:            ${m.max_drawdown:>10,.2f}")
+    print(f"  Max abs inventory:       {m.inventory_max:>10,}")
+    print(f"  Inventory std dev:       {m.inventory_std:>10,.2f}")
+    print(f"  Total fills:             {m.n_fills:>10,}")
+    print(f"  Total volume:            {m.total_volume:>10,}")
+    print(f"  Fill rate:               {m.fill_rate:>10.2%}")
+    print(f"  Avg fill price:          ${m.avg_fill_price:>10.4f}")
+    print(f"  Avg realized spread:     ${m.avg_realized_spread:>10.5f}/share")
+    print(f"  Avg adverse selection:   ${m.avg_adverse_selection:>10.5f}/share")
 
-    snaps = sim.strategy_snapshots_df()
-    if len(snaps):
-        print()
-        print("=== P&L over time (first 3, last 3) ===")
-        cols = ["timestamp", "inventory", "cash", "pnl", "n_fills"]
-        print(snaps[cols].head(3).to_string(index=False))
-        print("...")
-        print(snaps[cols].tail(3).to_string(index=False))
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    out_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE)
+    plot_backtest(sim, save_path=out_path, show=True,
+                  title="FixedSpreadMarketMaker — backtest")
+    print(f"\nSaved dashboard to {out_path}")
 
 
 if __name__ == "__main__":

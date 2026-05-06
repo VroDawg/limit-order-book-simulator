@@ -110,3 +110,67 @@ def plot_simulation(
         plt.close(fig)
 
     return fig
+
+def plot_backtest(
+    sim: "Simulation",
+    save_path: Optional[str] = None,
+    show: bool = True,
+    title: Optional[str] = None,
+) -> plt.Figure:
+    """4-panel backtest dashboard: P&L, inventory, fills, returns histogram."""
+    snaps = sim.strategy_snapshots_df()
+    if not len(snaps):
+        raise ValueError("No strategy snapshots — was a strategy attached?")
+
+    snaps_sec = snaps["timestamp"] / 1e9
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+    fig.suptitle(title or "Backtest dashboard", fontsize=14)
+
+    # 1. P&L over time
+    ax = axes[0, 0]
+    ax.plot(snaps_sec, snaps["pnl"], color="C2", linewidth=1)
+    ax.axhline(0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Strategy P&L ($)")
+    ax.set_title("P&L over time")
+    ax.grid(True, alpha=0.3)
+
+    # 2. Inventory over time
+    ax = axes[0, 1]
+    ax.plot(snaps_sec, snaps["inventory"], color="C1", linewidth=0.8)
+    ax.axhline(0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
+    ax.fill_between(snaps_sec, 0, snaps["inventory"], alpha=0.3, color="C1")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Inventory (shares)")
+    ax.set_title("Inventory over time")
+    ax.grid(True, alpha=0.3)
+
+    # 3. Cumulative fills
+    ax = axes[1, 0]
+    ax.plot(snaps_sec, snaps["n_fills"], color="C0", linewidth=1)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Cumulative fills")
+    ax.set_title("Fills over time")
+    ax.grid(True, alpha=0.3)
+
+    # 4. P&L change distribution
+    ax = axes[1, 1]
+    pnl_changes = snaps["pnl"].diff().dropna()
+    if len(pnl_changes):
+        ax.hist(pnl_changes, bins=40, color="C3", alpha=0.8, edgecolor="white")
+        ax.axvline(pnl_changes.mean(), color="black", linestyle="--", linewidth=1,
+                   label=f"mean ${pnl_changes.mean():.4f}")
+        ax.legend(fontsize=9)
+    ax.set_xlabel("P&L change per snapshot ($)")
+    ax.set_ylabel("Count")
+    ax.set_title("P&L change distribution")
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=120, bbox_inches="tight")
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+    return fig
