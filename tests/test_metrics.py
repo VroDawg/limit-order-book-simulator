@@ -55,3 +55,32 @@ class TestComputeMetrics:
         sim = _sim_with_mm()
         m = compute_metrics(sim)
         assert m.n_fills == len(sim.strategy.fills)
+
+class TestStrategyComparison:
+    def test_inventory_aware_has_lower_inventory_std(self) -> None:
+        """Inventory-aware MM should manage inventory better than fixed-spread."""
+        from lob.strategy import (
+            FixedSpreadMarketMaker, InventoryAwareMarketMaker,
+        )
+
+        sim_fixed = Simulation(
+            seed=42,
+            strategy_factory=lambda e, b: FixedSpreadMarketMaker(
+                e, b, half_spread_ticks=2, quote_size=20,
+            ),
+        )
+        sim_fixed.run(5_000)
+        m_fixed = compute_metrics(sim_fixed)
+
+        sim_aware = Simulation(
+            seed=42,
+            strategy_factory=lambda e, b: InventoryAwareMarketMaker(
+                e, b, half_spread_ticks=2, quote_size=20,
+                skew_per_share=0.001,
+            ),
+        )
+        sim_aware.run(5_000)
+        m_aware = compute_metrics(sim_aware)
+
+        assert m_aware.inventory_std < m_fixed.inventory_std
+        assert m_aware.inventory_max < m_fixed.inventory_max

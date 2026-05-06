@@ -5,6 +5,7 @@ from lob.matching_engine import MatchingEngine
 from lob.order import Order, OrderType, Side
 from lob.order_book import OrderBook
 from lob.strategy import FixedSpreadMarketMaker
+from lob.strategy import InventoryAwareMarketMaker  # add to imports at top of file
 
 
 @pytest.fixture
@@ -109,3 +110,51 @@ class TestStrategyCancelAll:
         n = mm.cancel_all()
         assert n == 2
         assert len(mm.active_orders) == 0
+
+
+class TestInventoryAwareMM:
+    def test_zero_inventory_quotes_symmetric(self, setup) -> None:
+        book, engine = setup
+        populate(book)  # mid = 100
+        mm = InventoryAwareMarketMaker(
+            engine, book,
+            half_spread_ticks=2, quote_size=50,
+            tick_size=0.01, skew_per_share=0.001,
+        )
+        mm.on_event(trades=[], current_time=1000)
+        bid = mm.active_orders[mm.bid_order_id]
+        ask = mm.active_orders[mm.ask_order_id]
+        assert bid.price == pytest.approx(99.98)
+        assert ask.price == pytest.approx(100.02)
+
+    def test_long_inventory_skews_quotes_down(self, setup) -> None:
+        book, engine = setup
+        populate(book)
+        mm = InventoryAwareMarketMaker(
+            engine, book,
+            half_spread_ticks=2, quote_size=50,
+            tick_size=0.01, skew_per_share=0.0001,
+        )
+        mm.position.inventory = 100  # simulate having accumulated long
+        mm.on_event(trades=[], current_time=1000)
+        bid = mm.active_orders[mm.bid_order_id]
+        ask = mm.active_orders[mm.ask_order_id]
+        # mid=100, skew=0.01 → center=99.99 → bid=99.97, ask=100.01
+        assert bid.price == pytest.approx(99.97)
+        assert ask.price == pytest.approx(100.01)
+
+    def test_short_inventory_skews_quotes_up(self, setup) -> None:
+        book, engine = setup
+        populate(book)
+        mm = InventoryAwareMarketMaker(
+            engine, book,
+            half_spread_ticks=2, quote_size=50,
+            tick_size=0.01, skew_per_share=0.0001,
+        )
+        mm.position.inventory = -100
+        mm.on_event(trades=[], current_time=1000)
+        bid = mm.active_orders[mm.bid_order_id]
+        ask = mm.active_orders[mm.ask_order_id]
+        # center = 100 + 0.01 = 100.01 → bid=99.99, ask=100.03
+        assert bid.price == pytest.approx(99.99)
+        assert ask.price == pytest.approx(100.03)

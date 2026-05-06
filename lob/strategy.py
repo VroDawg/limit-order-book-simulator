@@ -127,7 +127,7 @@ class Strategy(ABC):
                 if order.remaining_quantity == 0:
                     self.active_orders.pop(order_id, None)
                 return
-                
+
 
 
 class FixedSpreadMarketMaker(Strategy):
@@ -199,3 +199,63 @@ class FixedSpreadMarketMaker(Strategy):
         ask = self.submit(Side.SELL, ask_price, self.quote_size)
         self.bid_order_id = bid.order_id if bid.is_active else None
         self.ask_order_id = ask.order_id if ask.is_active else None
+
+class InventoryAwareMarketMaker(FixedSpreadMarketMaker):
+    """Market maker that skews its quote pair based on current inventory.
+
+    quote_center = mid − skew_per_share × inventory
+
+    Long → both quotes shift down (ask cheaper, bid less attractive) →
+    sell more, buy less → inventory pulls toward zero.
+    Short → quotes shift up.
+    """
+
+    def __init__(
+        self,
+        engine: MatchingEngine,
+        book: OrderBook,
+        half_spread_ticks: int = 2,
+        quote_size: int = 50,
+        tick_size: float = 0.01,
+        skew_per_share: float = 0.0001,
+        starting_order_id: int = 1_000_000,
+    ) -> None:
+        super().__init__(
+            engine, book,
+            half_spread_ticks=half_spread_ticks,
+            quote_size=quote_size,
+            tick_size=tick_size,
+            starting_order_id=starting_order_id,
+        )
+        self.skew_per_share = skew_per_share
+        self._last_quoted_inventory: int = 0
+
+    def _should_requote(self, mid: float) -> bool:
+        if self.bid_order_id is None or self.ask_order_id is None:
+            return True
+        if self._last_quoted_mid is None:
+            return True
+        if abs(mid - self._last_quoted_mid) >= 0.5 * self.tick_size:
+            return True
+        # Re-quote whenever inventory changed (partial fills, full fills, etc.)
+        if self.position.inventory != self._last_quoted_inventory:
+            return True
+        return False
+
+    def _place_quotes(self, mid: float) -> None:
+        offset = self.half_spread_ticks * self.tick_size
+        skew = self.position.inventory * self.skew_per_share
+        center = mid - skew
+
+        bid_price = round(round((center - offset) / self.tick_size) * self.tick_size, 8)
+        ask_price = round(round((center + offset) / self.tick_size) * self.tick_size, 8)
+        if bid_price >= ask_price:
+            ask_price = round(bid_price + self.tick_size, 8)
+        if bid_price <= 0:
+            bid_price = self.tick_size
+
+        bid = self.submit(Side.BUY, bid_price, self.quote_size)
+        ask = self.submit(Side.SELL, ask_price, self.quote_size)
+        self.bid_order_id = bid.order_id if bid.is_active else None
+        self.ask_order_id = ask.order_id if ask.is_active else None
+        self._last_quoted_inventory = self.position.inventory
