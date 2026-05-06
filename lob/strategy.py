@@ -40,6 +40,7 @@ class Strategy(ABC):
         self._current_time = current_time
         for trade in trades:
             self._maybe_apply_fill(trade)
+        self._reconcile_with_book()
         self.on_step()
 
     @abstractmethod
@@ -91,6 +92,16 @@ class Strategy(ABC):
 
     # ---- internals ---------------------------------------------------------
 
+    def _reconcile_with_book(self) -> None:
+        """Drop active_orders entries that are no longer in the book.
+
+        Handles the case where one of our orders was cancelled or fully
+        filled by a path other than our own ``submit``/``cancel``.
+        """
+        for order_id in list(self.active_orders.keys()):
+            if not self.book.has_order(order_id):
+                self.active_orders.pop(order_id, None)
+    
     def _maybe_apply_fill(self, trade: Trade) -> None:
         """If a trade involves one of our orders, update Position."""
         for order_id in (trade.maker_order_id, trade.aggressor_order_id):

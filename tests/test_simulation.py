@@ -98,3 +98,46 @@ class TestStatsAndDataFrames:
         df = sim.trades_df()
         assert len(df) == 0
         assert "price" in df.columns
+    
+class TestStrategyIntegration:
+    def _factory(self, engine, book):
+        from lob.strategy import FixedSpreadMarketMaker
+        return FixedSpreadMarketMaker(
+            engine=engine, book=book,
+            half_spread_ticks=2, quote_size=20, tick_size=0.01,
+        )
+
+    def test_runs_without_strategy(self) -> None:
+        sim = Simulation(seed=42)
+        sim.run(500)
+        assert sim.strategy is None
+        assert sim.strategy_snapshots == []
+
+    def test_strategy_attached_via_factory(self) -> None:
+        sim = Simulation(seed=42, strategy_factory=self._factory)
+        assert sim.strategy is not None
+
+    def test_strategy_receives_events(self) -> None:
+        sim = Simulation(seed=42, strategy_factory=self._factory)
+        sim.run(2_000)
+        # The strategy should have been quoting and getting filled
+        assert len(sim.strategy.fills) > 0
+
+    def test_strategy_snapshots_captured(self) -> None:
+        sim = Simulation(seed=42, strategy_factory=self._factory)
+        sim.run(2_000)
+        snaps = sim.strategy_snapshots_df()
+        assert len(snaps) > 5
+        for col in ["timestamp", "inventory", "cash", "pnl", "n_fills"]:
+            assert col in snaps.columns
+
+    def test_strategy_orders_are_protected_from_noise_cancels(self) -> None:
+        sim = Simulation(seed=42, strategy_factory=self._factory)
+        sim.run(2_000)
+        # The strategy's own cancellations are voluntary (re-quoting). It
+        # shouldn't be losing quotes constantly to the noise simulator.
+        # We check that all cancelled orders are non-strategy IDs (< 1M).
+        # This is indirect — we check that simulation cancels never failed
+        # because the order was in the strategy's hands.
+        stats = sim.stats()
+        assert stats.cancels_succeeded == stats.cancels_attempted

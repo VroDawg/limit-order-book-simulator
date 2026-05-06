@@ -9,7 +9,7 @@ from typing import Iterator, Optional
 
 from lob.order import Order, OrderType, Side
 from lob.order_book import OrderBook
-
+from typing import Callable, Iterator, Optional
 
 class EventType(Enum):
     """The five arrival processes the simulator drives."""
@@ -71,12 +71,14 @@ class OrderFlowSimulator:
         rng: Optional[random.Random] = None,
         starting_timestamp: int = 0,
         starting_order_id: int = 1,
+        is_protected: Optional["Callable[[int], bool]"] = None,
     ) -> None:
         self.params = params
         self.book = book
         self.rng = rng or random.Random()
         self._timestamp = starting_timestamp
         self._next_order_id = starting_order_id
+        self.is_protected = is_protected or (lambda _oid: False)
 
     @property
     def current_time(self) -> int:
@@ -118,12 +120,15 @@ class OrderFlowSimulator:
                     break
 
             if event_type == EventType.CANCEL:
-                ids = self.book.get_all_order_ids()
+                ids = [
+                    oid for oid in self.book.get_all_order_ids()
+                    if not self.is_protected(oid)
+                ]
                 if not ids:
                     continue  # phantom: time advanced, no event
                 target = self.rng.choice(ids)
                 return FlowEvent(timestamp=self._timestamp, cancel_order_id=target)
-
+            
             return FlowEvent(
                 timestamp=self._timestamp,
                 order=self._build_order(event_type),

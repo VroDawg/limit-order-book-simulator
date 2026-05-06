@@ -53,7 +53,10 @@ class OrderBook:
             del side_dict[price]
         order.cancel()
         return order
-
+    def has_order(self, order_id: int) -> bool:
+        """Whether an order with this id is currently resting in the book."""
+        return order_id in self._order_locations
+        
     def consume_from_top(self, side: Side, fill_qty: int) -> tuple[Order, int]:
         """Consume up to ``fill_qty`` from the front order of the best level
         on ``side``. Used by the matching engine when an opposing order matches.
@@ -75,7 +78,7 @@ class OrderBook:
         if level.is_empty:
             del side_dict[level.price]
         return front, actual
-        
+
     def get_all_order_ids(self) -> list[int]:
         """Return a snapshot list of all currently resting order ids."""
         return list(self._order_locations.keys())
