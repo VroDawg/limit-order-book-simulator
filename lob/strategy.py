@@ -9,7 +9,7 @@ from lob.order import Order, OrderType, Side
 from lob.order_book import OrderBook
 from lob.position import Position
 from dataclasses import dataclass
-
+import math
 @dataclass
 class StrategyFill:
     """Record of a fill on one of the strategy's own orders."""
@@ -249,6 +249,83 @@ class InventoryAwareMarketMaker(FixedSpreadMarketMaker):
 
         bid_price = round(round((center - offset) / self.tick_size) * self.tick_size, 8)
         ask_price = round(round((center + offset) / self.tick_size) * self.tick_size, 8)
+        if bid_price >= ask_price:
+            ask_price = round(bid_price + self.tick_size, 8)
+        if bid_price <= 0:
+            bid_price = self.tick_size
+
+        bid = self.submit(Side.BUY, bid_price, self.quote_size)
+        ask = self.submit(Side.SELL, ask_price, self.quote_size)
+        self.bid_order_id = bid.order_id if bid.is_active else None
+        self.ask_order_id = ask.order_id if ask.is_active else None
+        self._last_quoted_inventory = self.position.inventory
+
+class AvellanedaStoikovMarketMaker(FixedSpreadMarketMaker):
+    """Avellaneda-Stoikov optimal market maker (2008).
+
+    Reservation price: r = mid − q·γ·σ²·(T−t)
+    Half-spread:       δ = γ·σ²·(T−t)/2 + (1/γ)·ln(1 + γ/κ)
+
+    Where q is signed inventory. The first term of δ comes from inventory
+    risk; the second comes from optimal balance of fill rate vs. profit per
+    fill given order arrival intensity κ.
+    """
+
+    def __init__(
+        self,
+        engine: MatchingEngine,
+        book: OrderBook,
+        sigma: float = 0.1,           # price vol per √second
+        gamma: float = 0.05,          # risk aversion
+        kappa: float = 50.0,          # order arrival intensity
+        horizon_seconds: float = 1.0, # T − t
+        quote_size: int = 50,
+        tick_size: float = 0.01,
+        starting_order_id: int = 1_000_000,
+    ) -> None:
+        super().__init__(
+            engine, book,
+            half_spread_ticks=1,  # placeholder; not used (we compute δ directly)
+            quote_size=quote_size,
+            tick_size=tick_size,
+            starting_order_id=starting_order_id,
+        )
+        self.sigma = sigma
+        self.gamma = gamma
+        self.kappa = kappa
+        self.horizon_seconds = horizon_seconds
+        self._last_quoted_inventory: int = 0
+
+    @property
+    def reservation_skew(self) -> float:
+        """Coefficient applied to inventory in the reservation-price formula."""
+        return self.gamma * self.sigma ** 2 * self.horizon_seconds
+
+    @property
+    def half_spread(self) -> float:
+        """Optimal half-spread (price units) per the A-S formula."""
+        first = self.gamma * self.sigma ** 2 * self.horizon_seconds / 2.0
+        second = (1.0 / self.gamma) * math.log(1.0 + self.gamma / self.kappa)
+        return first + second
+
+    def _should_requote(self, mid: float) -> bool:
+        if self.bid_order_id is None or self.ask_order_id is None:
+            return True
+        if self._last_quoted_mid is None:
+            return True
+        if abs(mid - self._last_quoted_mid) >= 0.5 * self.tick_size:
+            return True
+        if self.position.inventory != self._last_quoted_inventory:
+            return True
+        return False
+
+    def _place_quotes(self, mid: float) -> None:
+        skew = self.position.inventory * self.reservation_skew
+        reservation = mid - skew
+        delta = self.half_spread
+
+        bid_price = round(round((reservation - delta) / self.tick_size) * self.tick_size, 8)
+        ask_price = round(round((reservation + delta) / self.tick_size) * self.tick_size, 8)
         if bid_price >= ask_price:
             ask_price = round(bid_price + self.tick_size, 8)
         if bid_price <= 0:

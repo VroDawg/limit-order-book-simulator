@@ -6,6 +6,7 @@ from lob.order import Order, OrderType, Side
 from lob.order_book import OrderBook
 from lob.strategy import FixedSpreadMarketMaker
 from lob.strategy import InventoryAwareMarketMaker  # add to imports at top of file
+from lob.strategy import AvellanedaStoikovMarketMaker  # add to imports at top
 
 
 @pytest.fixture
@@ -158,3 +159,70 @@ class TestInventoryAwareMM:
         # center = 100 + 0.01 = 100.01 → bid=99.99, ask=100.03
         assert bid.price == pytest.approx(99.99)
         assert ask.price == pytest.approx(100.03)
+
+
+class TestAvellanedaStoikovMM:
+    def test_half_spread_formula(self, setup) -> None:
+        import math as _math
+        book, engine = setup
+        mm = AvellanedaStoikovMarketMaker(
+            engine, book,
+            sigma=0.1, gamma=0.05, kappa=50.0, horizon_seconds=1.0,
+        )
+        expected = (
+            0.05 * 0.01 * 1.0 / 2.0
+            + (1.0 / 0.05) * _math.log(1.0 + 0.05 / 50.0)
+        )
+        assert mm.half_spread == pytest.approx(expected)
+
+    def test_reservation_skew_positive(self, setup) -> None:
+        book, engine = setup
+        mm = AvellanedaStoikovMarketMaker(
+            engine, book, sigma=0.1, gamma=0.05, horizon_seconds=1.0,
+        )
+        assert mm.reservation_skew > 0
+
+    def test_zero_inventory_centered_on_mid(self, setup) -> None:
+        book, engine = setup
+        populate(book)  # mid = 100
+        mm = AvellanedaStoikovMarketMaker(
+            engine, book,
+            sigma=0.1, gamma=0.05, kappa=50.0, horizon_seconds=1.0,
+            quote_size=50, tick_size=0.01,
+        )
+        mm.on_event(trades=[], current_time=1000)
+        bid = mm.active_orders[mm.bid_order_id]
+        ask = mm.active_orders[mm.ask_order_id]
+        # Symmetric around mid 100
+        center = (bid.price + ask.price) / 2.0
+        assert center == pytest.approx(100.0, abs=0.01)
+
+    def test_long_inventory_shifts_quotes_down(self, setup) -> None:
+        book, engine = setup
+        populate(book)  # mid = 100
+        mm = AvellanedaStoikovMarketMaker(
+            engine, book,
+            sigma=0.1, gamma=0.05, kappa=50.0, horizon_seconds=1.0,
+            quote_size=50, tick_size=0.01,
+        )
+        mm.position.inventory = 100
+        mm.on_event(trades=[], current_time=1000)
+        bid = mm.active_orders[mm.bid_order_id]
+        ask = mm.active_orders[mm.ask_order_id]
+        center = (bid.price + ask.price) / 2.0
+        assert center < 100.0  # reservation shifted down
+
+    def test_short_inventory_shifts_quotes_up(self, setup) -> None:
+        book, engine = setup
+        populate(book)
+        mm = AvellanedaStoikovMarketMaker(
+            engine, book,
+            sigma=0.1, gamma=0.05, kappa=50.0, horizon_seconds=1.0,
+            quote_size=50, tick_size=0.01,
+        )
+        mm.position.inventory = -100
+        mm.on_event(trades=[], current_time=1000)
+        bid = mm.active_orders[mm.bid_order_id]
+        ask = mm.active_orders[mm.ask_order_id]
+        center = (bid.price + ask.price) / 2.0
+        assert center > 100.0
