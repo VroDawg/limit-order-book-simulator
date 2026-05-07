@@ -1,0 +1,11 @@
+numpy
+pandas
+sortedcontainers
+matplotlib
+
+[dev]
+pytest
+jupyter
+
+[ui]
+streamlit

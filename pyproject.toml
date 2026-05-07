@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "limit-order-book-simulator"
+version = "0.1.0"
+description = "Limit order book simulator and market-making strategy backtester."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Tarin" },
+]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "sortedcontainers",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "jupyter"]
+ui = ["streamlit"]
+
+[tool.setuptools.packages.find]
+include = ["lob*"]
+exclude = ["tests*", "examples*", "notebooks*", "plots*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

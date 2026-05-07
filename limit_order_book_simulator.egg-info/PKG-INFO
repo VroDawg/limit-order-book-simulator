@@ -1,0 +1,44 @@
+Metadata-Version: 2.4
+Name: limit-order-book-simulator
+Version: 0.1.0
+Summary: Limit order book simulator and market-making strategy backtester.
+Author: Tarin
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Topic :: Office/Business :: Financial :: Investment
+Classifier: Topic :: Scientific/Engineering
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: sortedcontainers
+Requires-Dist: matplotlib
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: jupyter; extra == "dev"
+Provides-Extra: ui
+Requires-Dist: streamlit; extra == "ui"
+
+# Limit Order Book Simulator
+
+A Python implementation of a limit order book matching engine and market-making strategy backtester.
+
+## Features (planned)
+- Price-time priority matching engine
+- Limit, market, and cancel order support
+- Event-driven simulator with synthetic and replayed order flow
+- Market-making strategies including inventory-aware Avellaneda-Stoikov
+- Performance analytics: P&L, fill rate, inventory variance, adverse selection, Sharpe
+
+## Setup
+```bash
+python -m venv venv
+venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+```
+
+## Tests
+```bash
+pytest
+```
